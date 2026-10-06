@@ -7,6 +7,8 @@ const MSG: Record<string, string> = {
   'Invalid login credentials': 'อีเมลหรือรหัสผ่านไม่ถูกต้อง',
   'Email not confirmed': 'ยังไม่ได้ยืนยันอีเมล — เปิดลิงก์ในอีเมลก่อน',
   'User already registered': 'อีเมลนี้สมัครไว้แล้ว ลองเข้าสู่ระบบ',
+  'email rate limit exceeded':
+    'ระบบส่งอีเมลยืนยันครบโควตาชั่วโมงนี้แล้ว — ลองใหม่ภายหลัง หรือให้เจ้าของเต็นท์สร้างบัญชีให้ใน Supabase (Authentication → Users → Add user)',
 }
 
 export default function Login() {
@@ -37,7 +39,7 @@ export default function Login() {
       }
     } catch (err) {
       const m = (err as Error).message
-      setError(MSG[m] ?? m)
+      setError(MSG[m] ?? MSG[m.toLowerCase()] ?? m)
     } finally {
       setBusy(false)
     }
