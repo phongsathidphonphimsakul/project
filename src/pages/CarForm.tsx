@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { newCar, saveCar, useData } from '../lib/store'
+import { newCar, nextStockPreview, saveCar, useData } from '../lib/store'
 import { BRANDS, FUELS, PROVINCES } from '../lib/constants'
 import { carTitle } from '../lib/format'
 import { go } from '../lib/router'
@@ -25,8 +25,9 @@ export default function CarForm({ id }: { id?: string }) {
 
   function submit(e: FormEvent) {
     e.preventDefault()
+    const no = car.stockNo || nextStockPreview()
     saveCar(car)
-    toast(existing ? 'บันทึกการแก้ไขแล้ว' : `ลงรถ ${car.stockNo} แล้ว`)
+    toast(existing ? 'บันทึกการแก้ไขแล้ว' : `ลงรถ ${no} แล้ว`)
     go(`/car/${car.id}`)
   }
 
@@ -136,7 +137,11 @@ export default function CarForm({ id }: { id?: string }) {
           <Field label="ซื้อจาก" hint="ชื่อ / ลานประมูล / เต็นท์">
             {(fid) => <input id={fid} value={car.purchasedFrom} onChange={(e) => set('purchasedFrom', e.target.value)} />}
           </Field>
-          <Field label="เลขสต็อก">{(fid) => <input id={fid} className="mono" value={car.stockNo} onChange={(e) => set('stockNo', e.target.value)} />}</Field>
+          <Field label="เลขสต็อก" hint={existing ? undefined : 'เว้นว่างไว้ ระบบออกเลขให้'}>
+            {(fid) => (
+              <input id={fid} className="mono" value={car.stockNo} placeholder={existing ? '' : nextStockPreview()} onChange={(e) => set('stockNo', e.target.value)} />
+            )}
+          </Field>
         </div>
       </fieldset>
 

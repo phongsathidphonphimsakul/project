@@ -109,7 +109,7 @@ export default function Dashboard() {
           <header className="panel-head">
             <h2>กำไรจากรถที่ขายได้ 6 เดือนล่าสุด</h2>
           </header>
-          <ProfitChart months={stats.months} />
+          {stats.months.some((x) => x.n) ? <ProfitChart months={stats.months} /> : <p className="muted pad">ยังไม่มีรถที่ขายได้ในช่วง 6 เดือนนี้ — กด "ขายแล้ว" ในหน้ารถเพื่อบันทึกการขาย</p>}
         </section>
 
         <section className="panel">

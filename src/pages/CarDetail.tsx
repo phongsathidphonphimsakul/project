@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   addExpense,
+  canDeleteExpense,
   deleteCar,
+  memberName,
   removeExpense,
   removePhoto,
   saveCar,
@@ -10,6 +12,8 @@ import {
   updateExpense,
   uploadPhoto,
   useData,
+  useIsOwner,
+  useStore,
 } from '../lib/store'
 import { daysInStock, expenseTotal, installment, profitAt, quote, todayISO, totalCost } from '../lib/calc'
 import { baht, carTitle, pct, signed, thaiDate } from '../lib/format'
@@ -33,6 +37,8 @@ function Detail({ car }: { car: Car }) {
   const shownPrice = car.sale?.price ?? car.askingPrice
   const profit = shownPrice != null ? profitAt(shownPrice, cost) : null
   const [modal, setModal] = useState<null | 'reserve' | 'sell' | 'delete'>(null)
+  const owner = useIsOwner()
+  const teamSize = useStore((s) => s.members.length)
 
   function setStatus(s: CarStatus) {
     if (s === 'sold') return setModal('sell')
@@ -62,9 +68,11 @@ function Detail({ car }: { car: Car }) {
           <a className="btn" href={`#/car/${car.id}/edit`}>
             <Icon name="edit" /> <span className="hide-sm">แก้ไข</span>
           </a>
-          <button type="button" className="btn btn-ghost-danger" onClick={() => setModal('delete')} aria-label="ลบรถ">
-            <Icon name="trash" />
-          </button>
+          {owner && (
+            <button type="button" className="btn btn-ghost-danger" onClick={() => setModal('delete')} aria-label="ลบรถ">
+              <Icon name="trash" />
+            </button>
+          )}
         </div>
       </header>
 
@@ -126,6 +134,12 @@ function Detail({ car }: { car: Car }) {
           <CostLedger car={car} />
           <Breakdown car={car} />
           <PhotoBlock car={car} />
+          {teamSize > 1 && (
+            <p className="muted small audit">
+              ลงรถโดย {memberName(car.createdBy) || '–'}
+              {car.updatedBy && ` · แก้ไขล่าสุดโดย ${memberName(car.updatedBy)} ${new Date(car.updatedAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}`}
+            </p>
+          )}
           {car.notes && (
             <section className="panel">
               <header className="panel-head">
@@ -181,6 +195,7 @@ function CostLedger({ car }: { car: Car }) {
   const [date, setDate] = useState(todayISO())
   const [editing, setEditing] = useState<Expense | null>(null)
   const amountRef = useRef<HTMLDivElement>(null)
+  const showWho = useStore((s) => s.members.length > 1)
 
   function add(e: FormEvent) {
     e.preventDefault()
@@ -219,6 +234,7 @@ function CostLedger({ car }: { car: Car }) {
                 <span className="cat">{e.category}</span>
                 {e.label && <> {e.label}</>}
                 {e.vendor && <small className="muted"> · {e.vendor}</small>}
+                {showWho && e.createdBy && <small className="who">{memberName(e.createdBy)}</small>}
               </td>
               <td className="num">{baht(e.amount)}</td>
               <td className="row-act">
@@ -297,17 +313,21 @@ function ExpenseModal({ carId, expense, onClose }: { carId: string; expense: Exp
           <Field label="วันที่">{(id) => <input id={id} type="date" value={e.date} onChange={(x) => setE({ ...e, date: x.target.value })} />}</Field>
         </div>
         <div className="form-actions">
-          <button
-            type="button"
-            className="btn btn-ghost-danger"
-            onClick={() => {
-              removeExpense(carId, e.id)
-              toast('ลบรายการแล้ว')
-              onClose()
-            }}
-          >
-            <Icon name="trash" /> ลบรายการ
-          </button>
+          {canDeleteExpense(expense) ? (
+            <button
+              type="button"
+              className="btn btn-ghost-danger"
+              onClick={() => {
+                removeExpense(carId, e.id)
+                toast('ลบรายการแล้ว')
+                onClose()
+              }}
+            >
+              <Icon name="trash" /> ลบรายการ
+            </button>
+          ) : (
+            <small className="muted">ลบได้เฉพาะคนที่ลงรายการ หรือเจ้าของเต็นท์</small>
+          )}
           <span className="spacer" />
           <button type="button" className="btn" onClick={onClose}>
             ยกเลิก

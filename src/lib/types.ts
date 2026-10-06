@@ -17,6 +17,7 @@ export interface Expense {
   amount: number
   date: string // yyyy-mm-dd
   vendor: string
+  createdBy?: string | null
 }
 
 /**
@@ -76,8 +77,38 @@ export interface Car {
   notes: string
   photoPath: string | null // path ใน Supabase Storage
   photoUrl: string | null // signed URL (สร้างตอนโหลด ไม่บันทึกลงฐานข้อมูล)
+  createdBy?: string | null
+  updatedBy?: string | null
   createdAt: number
   updatedAt: number
+}
+
+export type Role = 'owner' | 'staff'
+
+export const ROLE_LABEL: Record<Role, string> = {
+  owner: 'เจ้าของ',
+  staff: 'พนักงาน',
+}
+
+export interface Membership {
+  shopId: string
+  shopName: string
+  role: Role
+}
+
+export interface Member {
+  userId: string
+  email: string
+  name: string
+  role: Role
+}
+
+export interface Invite {
+  id: string
+  shopId: string
+  shopName: string
+  email: string
+  role: Role
 }
 
 export interface Settings {

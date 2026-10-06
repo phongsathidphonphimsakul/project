@@ -1,0 +1,21 @@
+{
+  "name": "ลานรถ — ต้นทุนและราคาขายรถ",
+  "short_name": "ลานรถ",
+  "description": "จดต้นทุนรถ ตั้งราคาขาย และดูกำไร ใช้ร่วมกันทั้งเต็นท์",
+  "lang": "th",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f3f0e8",
+  "theme_color": "#1c1b18",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "ลงรถคันใหม่", "url": "./#/new" },
+    { "name": "ประเมินก่อนซื้อ", "url": "./#/appraise" }
+  ]
+}

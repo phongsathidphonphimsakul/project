@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react'
-import { importBackup, saveSettings, snapshot, useData, useStore } from '../lib/store'
+import { importBackup, saveSettings, signOut, snapshot, useData, useIsOwner, useStore } from '../lib/store'
+import { isIOS, isStandalone, promptInstall, useCanInstall } from '../lib/pwa'
+import { ShopsSection, TeamSection } from '../components/Team'
 import { supabase } from '../lib/supabase'
 import { daysInStock, expenseTotal, totalCost } from '../lib/calc'
 import { STATUS_LABEL, type Rounding, type Settings } from '../lib/types'
@@ -41,24 +43,35 @@ export default function SettingsPage() {
   const { settings, cars } = useData()
   const user = useStore((s) => s.user)
   const [s, setS] = useState<Settings>(settings)
+  const [base, setBase] = useState<Settings>(settings)
   const [pw, setPw] = useState('')
   const file = useRef<HTMLInputElement>(null)
+  const owner = useIsOwner()
+  const canInstall = useCanInstall()
   const dirty = JSON.stringify(s) !== JSON.stringify(settings)
   const set = (patch: Partial<Settings>) => setS({ ...s, ...patch })
 
   return (
     <div className="page page-narrow">
       <header className="page-head">
-        <h1>ตั้งค่า</h1>
+        <h1>ตั้งค่าและทีม</h1>
       </header>
 
+      <TeamSection />
+
+      {owner ? (
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          saveSettings(s)
+          // เลขสต็อกอาจเดินไปแล้วระหว่างที่เปิดหน้านี้ (คนอื่นลงรถ) — ส่งเฉพาะถ้าแก้เอง
+          const next = { ...s, nextStockNo: s.nextStockNo === base.nextStockNo ? settings.nextStockNo : s.nextStockNo }
+          saveSettings(next)
+          setS(next)
+          setBase(next)
           toast('บันทึกการตั้งค่าแล้ว')
         }}
       >
+        <fieldset className="plain">
         <fieldset className="block">
           <legend>ร้าน</legend>
           <div className="grid grid-2">
@@ -148,8 +161,12 @@ export default function SettingsPage() {
           </div>
         </fieldset>
 
+        </fieldset>
         <div className="form-actions sticky-actions">
-          <button type="button" className="btn" disabled={!dirty} onClick={() => setS(settings)}>
+          <button type="button" className="btn" disabled={!dirty} onClick={() => {
+              setS(settings)
+              setBase(settings)
+            }}>
             คืนค่า
           </button>
           <button type="submit" className="btn btn-primary" disabled={!dirty}>
@@ -157,10 +174,13 @@ export default function SettingsPage() {
           </button>
         </div>
       </form>
+      ) : (
+        <p className="muted small staff-note">การตั้งค่าเต็นท์ (ราคาเริ่มต้น ไฟแนนซ์ เลขสต็อก) แก้ได้เฉพาะเจ้าของ</p>
+      )}
 
       <fieldset className="block">
         <legend>ข้อมูล</legend>
-        <p className="muted small">ข้อมูลเก็บบน Supabase ผูกกับบัญชี {user?.email} · รถ {cars.length} คัน</p>
+        <p className="muted small">ข้อมูลเก็บบน Supabase ใช้ร่วมกันทุกคนในเต็นท์ · รถ {cars.length} คัน</p>
         <div className="btn-row">
           <button type="button" className="btn" onClick={exportCsv} disabled={!cars.length}>
             <Icon name="download" /> ส่งออก CSV (เปิดใน Excel)
@@ -172,9 +192,11 @@ export default function SettingsPage() {
           >
             <Icon name="download" /> สำรองข้อมูล (JSON)
           </button>
-          <button type="button" className="btn" onClick={() => file.current?.click()}>
-            <Icon name="upload" /> นำเข้าไฟล์สำรอง
-          </button>
+          {owner && (
+            <button type="button" className="btn" onClick={() => file.current?.click()}>
+              <Icon name="upload" /> นำเข้าไฟล์สำรอง
+            </button>
+          )}
           <input
             ref={file}
             type="file"
@@ -195,8 +217,41 @@ export default function SettingsPage() {
         </div>
       </fieldset>
 
+      <ShopsSection />
+
+      {!isStandalone() && (
+        <fieldset className="block">
+          <legend>ใช้บนมือถือ</legend>
+          {canInstall ? (
+            <>
+              <p className="muted small">ติดตั้งลงหน้าจอโฮม เปิดได้เหมือนแอปทั่วไป เต็มจอ ไม่มีแถบเบราว์เซอร์</p>
+              <button type="button" className="btn btn-primary" onClick={() => void promptInstall()}>
+                <Icon name="download" /> ติดตั้งแอป
+              </button>
+            </>
+          ) : isIOS() ? (
+            <ol className="install-steps">
+              <li>เปิดหน้านี้ใน Safari</li>
+              <li>
+                กดปุ่ม <b>แชร์</b> (สี่เหลี่ยมมีลูกศรชี้ขึ้น) ด้านล่างจอ
+              </li>
+              <li>
+                เลือก <b>เพิ่มไปยังหน้าจอโฮม</b> แล้วกด <b>เพิ่ม</b>
+              </li>
+            </ol>
+          ) : (
+            <ol className="install-steps">
+              <li>เปิดหน้านี้ใน Chrome บนมือถือ</li>
+              <li>
+                กดเมนู <b>⋮</b> มุมขวาบน แล้วเลือก <b>ติดตั้งแอป</b> หรือ <b>เพิ่มลงในหน้าจอหลัก</b>
+              </li>
+            </ol>
+          )}
+        </fieldset>
+      )}
+
       <fieldset className="block">
-        <legend>บัญชี</legend>
+        <legend>บัญชี {user?.email}</legend>
         <form
           className="inline-form"
           onSubmit={async (e) => {
@@ -211,6 +266,9 @@ export default function SettingsPage() {
             เปลี่ยนรหัสผ่าน
           </button>
         </form>
+        <button type="button" className="btn signout" onClick={() => void signOut()}>
+          ออกจากระบบ
+        </button>
       </fieldset>
     </div>
   )

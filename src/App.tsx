@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useRoute, go, type Route } from './lib/router'
-import { clearError, signOut, useData, useStore } from './lib/store'
+import { clearError, signOut, switchShop, useData, useStore } from './lib/store'
 import { isConfigured } from './lib/supabase'
 import { Icon, Toaster } from './components/ui'
 import Dashboard from './pages/Dashboard'
@@ -12,12 +12,13 @@ import Appraise from './pages/Appraise'
 import SettingsPage from './pages/Settings'
 import Login from './pages/Login'
 import Setup from './pages/Setup'
+import Onboarding from './pages/Onboarding'
 
 const NAV: { key: Route['name']; href: string; label: string; icon: string }[] = [
   { key: 'dashboard', href: '#/', label: 'ภาพรวม', icon: 'grid' },
   { key: 'cars', href: '#/cars', label: 'รถในเต็นท์', icon: 'list' },
   { key: 'appraise', href: '#/appraise', label: 'ประเมินก่อนซื้อ', icon: 'calc' },
-  { key: 'settings', href: '#/settings', label: 'ตั้งค่า', icon: 'gear' },
+  { key: 'settings', href: '#/settings', label: 'ตั้งค่าและทีม', icon: 'gear' },
 ]
 
 function isActive(route: Route, key: Route['name']) {
@@ -53,6 +54,10 @@ export default function App() {
   const authReady = useStore((s) => s.authReady)
   const user = useStore((s) => s.user)
   const loaded = useStore((s) => s.loaded)
+  const shopsReady = useStore((s) => s.shopsReady)
+  const shopId = useStore((s) => s.shopId)
+  const memberships = useStore((s) => s.memberships)
+  const myInvites = useStore((s) => s.myInvites)
   const { cars, settings } = useData()
 
   useEffect(() => {
@@ -62,6 +67,8 @@ export default function App() {
   if (!isConfigured) return <Setup />
   if (!authReady) return <div className="boot">กำลังเปิด…</div>
   if (!user) return <Login />
+  if (!shopsReady) return <div className="boot">กำลังโหลดข้อมูล…</div>
+  if (!shopId) return <Onboarding />
 
   if (route.name === 'print') {
     if (!loaded) return <div className="boot">กำลังโหลดข้อมูล…</div>
@@ -104,6 +111,15 @@ export default function App() {
           ลานรถ
           {settings.shopName && <small>{settings.shopName}</small>}
         </a>
+        {memberships.length > 1 && (
+          <select className="shop-switch" aria-label="สลับเต็นท์" value={shopId} onChange={(e) => void switchShop(e.target.value)}>
+            {memberships.map((m) => (
+              <option key={m.shopId} value={m.shopId}>
+                {m.shopName || 'เต็นท์ไม่มีชื่อ'}
+              </option>
+            ))}
+          </select>
+        )}
         <button type="button" className="btn btn-primary rail-new" onClick={() => go('/new')}>
           <Icon name="plus" /> ลงรถคันใหม่
         </button>
@@ -113,6 +129,7 @@ export default function App() {
               <Icon name={n.icon} />
               <span>{n.label}</span>
               {n.key === 'cars' && <em>{inStock}</em>}
+              {n.key === 'settings' && myInvites.length > 0 && <em className="dot">{myInvites.length}</em>}
             </a>
           ))}
         </nav>
@@ -128,6 +145,20 @@ export default function App() {
       </aside>
 
       <main className="main">
+        <div className="mobilebar">
+          {memberships.length > 1 ? (
+            <select aria-label="สลับเต็นท์" value={shopId} onChange={(e) => void switchShop(e.target.value)}>
+              {memberships.map((m) => (
+                <option key={m.shopId} value={m.shopId}>
+                  {m.shopName || 'เต็นท์ไม่มีชื่อ'}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="mobilebar-shop">{settings.shopName || 'ลานรถ'}</span>
+          )}
+          <SyncBadge />
+        </div>
         <ErrorBar />
         {page}
       </main>
@@ -145,7 +176,7 @@ export default function App() {
         {NAV.slice(2).map((n) => (
           <a key={n.key} href={n.href} aria-current={isActive(route, n.key) ? 'page' : undefined}>
             <Icon name={n.icon} size={20} />
-            <span>{n.key === 'appraise' ? 'ประเมิน' : n.label}</span>
+            <span>{n.key === 'appraise' ? 'ประเมิน' : n.key === 'settings' ? 'ตั้งค่า/ทีม' : n.label}</span>
           </a>
         ))}
       </nav>
