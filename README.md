@@ -86,3 +86,13 @@ src/lib/supabase.ts   Supabase client
 src/pages/            หน้าจอแต่ละหน้า
 supabase/migrations/  โครงสร้างฐานข้อมูลและ RLS
 ```
+
+## กันโปรเจกต์ Supabase (แพ็กเกจฟรี) ถูกพัก
+
+แพ็กเกจฟรีจะพักโปรเจกต์ถ้าไม่มีการใช้งานประมาณ 1 สัปดาห์ `.github/workflows/supabase-keep-alive.yml` จะส่งคำขอเล็กๆ ไปที่ฐานข้อมูลทุก 3 วัน
+
+1. GitHub repo → **Settings → Secrets and variables → Actions → New repository secret** เพิ่ม
+   `SUPABASE_URL` และ `SUPABASE_ANON_KEY` (ค่าเดียวกับที่ใส่ใน Vercel)
+2. ไฟล์ workflow ต้องอยู่ใน branch หลัก (`main`) GitHub ถึงจะรันตามเวลา
+3. ทดสอบ: แท็บ **Actions → Supabase keep-alive → Run workflow** ต้องขึ้นเครื่องหมายถูกสีเขียว
+   ถ้ารันไม่ผ่าน GitHub จะส่งอีเมลแจ้ง

@@ -1,0 +1,39 @@
+# กันโปรเจกต์ Supabase แพ็กเกจฟรีถูกพักเมื่อไม่มีใครใช้งานประมาณ 1 สัปดาห์
+# ส่งคำขออ่านข้อมูลเล็กๆ ไปที่ฐานข้อมูลทุก 3 วัน (ไม่ได้อ่านข้อมูลจริง เพราะ RLS ไม่ให้คนที่ไม่ล็อกอินเห็นอะไร)
+#
+# ต้องตั้ง Repository secrets 2 ตัว (Settings → Secrets and variables → Actions):
+#   SUPABASE_URL       เช่น https://abcdxyz.supabase.co
+#   SUPABASE_ANON_KEY  publishable key หรือ anon key (ห้ามใช้ secret / service_role key)
+name: Supabase keep-alive
+
+on:
+  schedule:
+    - cron: '17 2 */3 * *' # ทุก 3 วัน เวลา 09:17 น. ไทย
+  workflow_dispatch: # กดรันเองได้ที่แท็บ Actions
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::ยังไม่ได้ตั้ง secrets SUPABASE_URL และ SUPABASE_ANON_KEY"
+            exit 1
+          fi
+          status=$(curl -sS -o /tmp/body.txt -w '%{http_code}' --retry 3 --retry-delay 10 \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            "${SUPABASE_URL%/}/rest/v1/shops?select=id&limit=1")
+          echo "HTTP $status"
+          if [ "$status" != "200" ]; then
+            cat /tmp/body.txt; echo
+            echo "::error::Supabase ตอบ $status — โปรเจกต์อาจถูกพักไปแล้ว หรือ secrets ไม่ถูกต้อง"
+            exit 1
+          fi
