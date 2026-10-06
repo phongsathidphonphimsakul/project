@@ -39,6 +39,11 @@ await as(B, 'b@other.com', `insert into cars (brand) values ('Honda')`)
 check('init isolation', (await as(B, 'b@other.com', 'select * from cars')).rows.length === 1)
 
 await db.exec(teams)
+// SQL Editor ของ Supabase แทรก ALTER TABLE เมื่อเจอ "select ... into" — ห้ามมีในไฟล์
+check('no SELECT/RETURNING INTO', !/\b(select|returning)\b[^;]*?\binto\b(?!\s+public\.)/is.test(teams.replace(/--[^\n]*/g, '').replace(/insert\s+into/gi, '')))
+// รันซ้ำได้ (เผื่อรอบแรกค้าง)
+await db.exec(teams)
+check('re-run keeps data', (await db.query('select count(*)::int n from shops')).rows[0].n === 2)
 const shops = (await db.query('select * from shops order by name')).rows
 check('two shops migrated', shops.length === 2, JSON.stringify(shops))
 const sa = shops.find((s) => s.name === 'ต.ยานยนต์')

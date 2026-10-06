@@ -1,8 +1,12 @@
 -- ลานรถ: ระบบทีม — ข้อมูลรถเป็นของ "เต็นท์" (shop) และสมาชิกในเต็นท์ใช้ร่วมกัน
 -- รันต่อจาก 20261006000000_init.sql (ข้อมูลเดิมของแต่ละบัญชีจะถูกย้ายเข้าเต็นท์ของบัญชีนั้นอัตโนมัติ)
+-- รันซ้ำได้ ถ้ารอบก่อนค้างกลางทาง
+--
+-- หมายเหตุ: ในฟังก์ชันไม่ใช้รูปแบบ "select/returning ... into" เพราะ SQL Editor ของ Supabase
+-- เข้าใจผิดว่าเป็นการสร้างตารางใหม่ แล้วแทรกคำสั่ง ALTER TABLE เข้ากลางฟังก์ชันจน SQL พัง
 
 -- ---------- ตารางใหม่ ----------
-create table public.shops (
+create table if not exists public.shops (
   id            uuid primary key default gen_random_uuid(),
   name          text not null default '',
   settings      jsonb not null default '{}'::jsonb,
@@ -13,7 +17,7 @@ create table public.shops (
   updated_at    timestamptz not null default now()
 );
 
-create table public.shop_members (
+create table if not exists public.shop_members (
   shop_id    uuid not null references public.shops (id) on delete cascade,
   user_id    uuid not null references auth.users (id) on delete cascade,
   role       text not null default 'staff' check (role in ('owner', 'staff')),
@@ -22,9 +26,9 @@ create table public.shop_members (
   created_at timestamptz not null default now(),
   primary key (shop_id, user_id)
 );
-create index shop_members_user_idx on public.shop_members (user_id);
+create index if not exists shop_members_user_idx on public.shop_members (user_id);
 
-create table public.shop_invites (
+create table if not exists public.shop_invites (
   id          uuid primary key default gen_random_uuid(),
   shop_id     uuid not null references public.shops (id) on delete cascade,
   shop_name   text not null default '',
@@ -34,7 +38,7 @@ create table public.shop_invites (
   created_at  timestamptz not null default now(),
   unique (shop_id, email)
 );
-create index shop_invites_email_idx on public.shop_invites (lower(email));
+create index if not exists shop_invites_email_idx on public.shop_invites (lower(email));
 
 -- ---------- ฟังก์ชันตรวจสิทธิ์ (security definer กัน RLS วนซ้ำ) ----------
 create or replace function public.is_shop_member(p_shop uuid) returns boolean
@@ -54,19 +58,28 @@ language sql stable security definer set search_path = '' as $$
 $$;
 
 -- ---------- cars / expenses: เปลี่ยนจากของผู้ใช้ เป็นของเต็นท์ ----------
-alter table public.cars add column shop_id uuid references public.shops (id) on delete cascade;
-alter table public.expenses add column shop_id uuid references public.shops (id) on delete cascade;
+alter table public.cars add column if not exists shop_id uuid references public.shops (id) on delete cascade;
+alter table public.expenses add column if not exists shop_id uuid references public.shops (id) on delete cascade;
 
 -- ผู้สร้างรายการ: ถ้าบัญชีพนักงานถูกลบ ข้อมูลรถต้องไม่หายตาม
-alter table public.cars drop constraint if exists cars_user_id_fkey;
-alter table public.cars alter column user_id drop not null;
-alter table public.cars rename column user_id to created_by;
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'cars' and column_name = 'user_id') then
+    alter table public.cars drop constraint if exists cars_user_id_fkey;
+    alter table public.cars alter column user_id drop not null;
+    alter table public.cars rename column user_id to created_by;
+  end if;
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'expenses' and column_name = 'user_id') then
+    alter table public.expenses drop constraint if exists expenses_user_id_fkey;
+    alter table public.expenses alter column user_id drop not null;
+    alter table public.expenses rename column user_id to created_by;
+  end if;
+end $$;
+alter table public.cars drop constraint if exists cars_created_by_fkey;
 alter table public.cars add constraint cars_created_by_fkey foreign key (created_by) references auth.users (id) on delete set null;
-alter table public.cars add column updated_by uuid references auth.users (id) on delete set null;
+alter table public.cars add column if not exists updated_by uuid references auth.users (id) on delete set null;
 
-alter table public.expenses drop constraint if exists expenses_user_id_fkey;
-alter table public.expenses alter column user_id drop not null;
-alter table public.expenses rename column user_id to created_by;
+alter table public.expenses drop constraint if exists expenses_created_by_fkey;
 alter table public.expenses add constraint expenses_created_by_fkey foreign key (created_by) references auth.users (id) on delete set null;
 
 -- ย้ายข้อมูลเดิม: ทุกบัญชีที่มีรถหรือการตั้งค่า ได้เต็นท์ของตัวเองและเป็นเจ้าของ
@@ -75,25 +88,29 @@ declare
   r record;
   sid uuid;
 begin
+  if to_regclass('public.settings') is null then
+    return; -- ย้ายไปแล้วในรอบก่อน
+  end if;
   for r in
     select u.id, u.email, s.data
     from auth.users u
     left join public.settings s on s.user_id = u.id
-    where exists (select 1 from public.cars c where c.created_by = u.id)
+    where exists (select 1 from public.cars c where c.created_by = u.id and c.shop_id is null)
        or s.user_id is not null
   loop
-    insert into public.shops (name, settings, stock_prefix, next_stock_no, created_by)
+    sid := gen_random_uuid();
+    insert into public.shops (id, name, settings, stock_prefix, next_stock_no, created_by)
     values (
+      sid,
       coalesce(nullif(r.data ->> 'shopName', ''), 'เต็นท์ของฉัน'),
       coalesce(r.data, '{}'::jsonb) - 'stockPrefix' - 'nextStockNo',
       coalesce(nullif(r.data ->> 'stockPrefix', ''), 'A'),
       coalesce((r.data ->> 'nextStockNo')::int, 1),
       r.id
-    )
-    returning id into sid;
+    );
     insert into public.shop_members (shop_id, user_id, role, email) values (sid, r.id, 'owner', coalesce(r.email, ''));
-    update public.cars set shop_id = sid where created_by = r.id;
-    update public.expenses set shop_id = sid where created_by = r.id;
+    update public.cars set shop_id = sid where created_by = r.id and shop_id is null;
+    update public.expenses set shop_id = sid where created_by = r.id and shop_id is null;
   end loop;
 end $$;
 
@@ -103,28 +120,28 @@ alter table public.cars alter column shop_id set not null;
 alter table public.expenses alter column shop_id set not null;
 
 drop index if exists public.cars_user_idx;
-create index cars_shop_idx on public.cars (shop_id, created_at desc);
-create index expenses_shop_idx on public.expenses (shop_id);
+create index if not exists cars_shop_idx on public.cars (shop_id, created_at desc);
+create index if not exists expenses_shop_idx on public.expenses (shop_id);
 
-drop table public.settings;
+drop table if exists public.settings;
 
 -- ---------- triggers ----------
 -- เลขสต็อกอัตโนมัติ: ออกเลขในฐานข้อมูล กันพนักงานสองคนลงรถพร้อมกันแล้วได้เลขซ้ำ
 create or replace function public.assign_stock_no() returns trigger
 language plpgsql security definer set search_path = '' as $$
-declare
-  n int;
-  p text;
 begin
   if coalesce(new.stock_no, '') = '' then
-    update public.shops set next_stock_no = next_stock_no + 1
-    where id = new.shop_id
-    returning next_stock_no - 1, stock_prefix into n, p;
-    new.stock_no := p || '-' || lpad(n::text, 3, '0');
+    -- update ล็อกแถวของเต็นท์ไว้จนจบ transaction คนอื่นที่ลงรถพร้อมกันจะรอคิว เลขจึงไม่ซ้ำ
+    update public.shops set next_stock_no = next_stock_no + 1 where id = new.shop_id;
+    new.stock_no := (
+      select s.stock_prefix || '-' || lpad((s.next_stock_no - 1)::text, 3, '0')
+      from public.shops s where s.id = new.shop_id
+    );
   end if;
   return new;
 end $$;
 
+drop trigger if exists cars_stock_no on public.cars;
 create trigger cars_stock_no before insert on public.cars
   for each row execute function public.assign_stock_no();
 
@@ -138,6 +155,7 @@ begin
   return new;
 end $$;
 
+drop trigger if exists cars_stamp on public.cars;
 create trigger cars_stamp before insert or update on public.cars
   for each row execute function public.stamp_car();
 
@@ -145,16 +163,18 @@ create trigger cars_stamp before insert or update on public.cars
 create or replace function public.expense_shop() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
-  select c.shop_id into new.shop_id from public.cars c where c.id = new.car_id;
+  new.shop_id := (select c.shop_id from public.cars c where c.id = new.car_id);
   if tg_op = 'INSERT' then
     new.created_by := coalesce(new.created_by, auth.uid());
   end if;
   return new;
 end $$;
 
+drop trigger if exists expenses_shop on public.expenses;
 create trigger expenses_shop before insert or update on public.expenses
   for each row execute function public.expense_shop();
 
+drop trigger if exists shops_touch on public.shops;
 create trigger shops_touch before update on public.shops
   for each row execute function public.touch_updated_at();
 
@@ -171,6 +191,7 @@ begin
   return new;
 end $$;
 
+drop trigger if exists shop_members_guard on public.shop_members;
 create trigger shop_members_guard before update on public.shop_members
   for each row execute function public.guard_member_update();
 
@@ -178,13 +199,12 @@ create trigger shop_members_guard before update on public.shop_members
 create or replace function public.create_shop(p_name text) returns uuid
 language plpgsql security definer set search_path = '' as $$
 declare
-  sid uuid;
+  sid uuid := gen_random_uuid();
 begin
   if auth.uid() is null then
     raise exception 'not signed in';
   end if;
-  insert into public.shops (name, created_by) values (coalesce(nullif(trim(p_name), ''), 'เต็นท์ของฉัน'), auth.uid())
-  returning id into sid;
+  insert into public.shops (id, name, created_by) values (sid, coalesce(nullif(trim(p_name), ''), 'เต็นท์ของฉัน'), auth.uid());
   insert into public.shop_members (shop_id, user_id, role, email)
   values (sid, auth.uid(), 'owner', coalesce(auth.jwt() ->> 'email', ''));
   return sid;
@@ -193,18 +213,18 @@ end $$;
 create or replace function public.accept_invite(p_invite uuid) returns uuid
 language plpgsql security definer set search_path = '' as $$
 declare
-  inv public.shop_invites;
+  my_email text := lower(coalesce(auth.jwt() ->> 'email', ''));
+  v_shop uuid;
 begin
-  select * into inv from public.shop_invites
-  where id = p_invite and lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''));
-  if inv.id is null then
+  v_shop := (select i.shop_id from public.shop_invites i where i.id = p_invite and lower(i.email) = my_email);
+  if v_shop is null or auth.uid() is null then
     raise exception 'ไม่พบคำเชิญ หรือคำเชิญนี้ไม่ได้ส่งถึงอีเมลของคุณ';
   end if;
   insert into public.shop_members (shop_id, user_id, role, email)
-  values (inv.shop_id, auth.uid(), inv.role, inv.email)
+  select i.shop_id, auth.uid(), i.role, i.email from public.shop_invites i where i.id = p_invite
   on conflict (shop_id, user_id) do nothing;
-  delete from public.shop_invites where id = inv.id;
-  return inv.shop_id;
+  delete from public.shop_invites where id = p_invite;
+  return v_shop;
 end $$;
 
 revoke all on function public.create_shop(text) from public, anon;
@@ -217,21 +237,27 @@ alter table public.shops        enable row level security;
 alter table public.shop_members enable row level security;
 alter table public.shop_invites enable row level security;
 
+drop policy if exists "members read shop" on public.shops;
 create policy "members read shop" on public.shops
   for select to authenticated using (public.is_shop_member(id));
+drop policy if exists "owners update shop" on public.shops;
 create policy "owners update shop" on public.shops
   for update to authenticated using (public.is_shop_owner(id)) with check (public.is_shop_owner(id));
+drop policy if exists "owners delete shop" on public.shops;
 create policy "owners delete shop" on public.shops
   for delete to authenticated using (public.is_shop_owner(id));
 
+drop policy if exists "members read members" on public.shop_members;
 create policy "members read members" on public.shop_members
   for select to authenticated using (public.is_shop_member(shop_id));
 -- เจ้าของเปลี่ยนบทบาทคนอื่นได้ (ไม่ใช่ตัวเอง กันเต็นท์ไม่มีเจ้าของ)
+drop policy if exists "owners update members" on public.shop_members;
 create policy "owners update members" on public.shop_members
   for update to authenticated
   using (public.is_shop_owner(shop_id) and user_id <> (select auth.uid()))
   with check (public.is_shop_owner(shop_id));
 -- เจ้าของเอาพนักงานออกได้ / พนักงานออกจากเต็นท์เองได้
+drop policy if exists "remove members" on public.shop_members;
 create policy "remove members" on public.shop_members
   for delete to authenticated
   using (
@@ -239,38 +265,50 @@ create policy "remove members" on public.shop_members
     or (user_id = (select auth.uid()) and role <> 'owner')
   );
 -- แก้ชื่อที่แสดงของตัวเอง
+drop policy if exists "edit own member name" on public.shop_members;
 create policy "edit own member name" on public.shop_members
   for update to authenticated
   using (user_id = (select auth.uid()))
   with check (user_id = (select auth.uid()));
 
+drop policy if exists "read invites" on public.shop_invites;
 create policy "read invites" on public.shop_invites
   for select to authenticated
   using (public.is_shop_owner(shop_id) or lower(email) = lower(coalesce((select auth.jwt()) ->> 'email', '')));
+drop policy if exists "owners invite" on public.shop_invites;
 create policy "owners invite" on public.shop_invites
   for insert to authenticated with check (public.is_shop_owner(shop_id));
+drop policy if exists "delete invites" on public.shop_invites;
 create policy "delete invites" on public.shop_invites
   for delete to authenticated
   using (public.is_shop_owner(shop_id) or lower(email) = lower(coalesce((select auth.jwt()) ->> 'email', '')));
 
 drop policy if exists "own cars" on public.cars;
+drop policy if exists "members read cars" on public.cars;
 create policy "members read cars" on public.cars
   for select to authenticated using (public.is_shop_member(shop_id));
+drop policy if exists "members add cars" on public.cars;
 create policy "members add cars" on public.cars
   for insert to authenticated with check (public.is_shop_member(shop_id));
+drop policy if exists "members edit cars" on public.cars;
 create policy "members edit cars" on public.cars
   for update to authenticated using (public.is_shop_member(shop_id)) with check (public.is_shop_member(shop_id));
+drop policy if exists "owners delete cars" on public.cars;
 create policy "owners delete cars" on public.cars
   for delete to authenticated using (public.is_shop_owner(shop_id));
 
 drop policy if exists "own expenses" on public.expenses;
+drop policy if exists "members read expenses" on public.expenses;
 create policy "members read expenses" on public.expenses
   for select to authenticated using (public.is_shop_member(shop_id));
+drop policy if exists "members add expenses" on public.expenses;
 create policy "members add expenses" on public.expenses
   for insert to authenticated with check (public.is_shop_member(shop_id));
+drop policy if exists "members edit expenses" on public.expenses;
 create policy "members edit expenses" on public.expenses
   for update to authenticated using (public.is_shop_member(shop_id)) with check (public.is_shop_member(shop_id));
 -- ลบได้เฉพาะคนที่ลงรายการนั้นเอง หรือเจ้าของ
+drop policy if exists "delete own expenses" on public.expenses;
 create policy "delete own expenses" on public.expenses
   for delete to authenticated
   using (public.is_shop_owner(shop_id) or (public.is_shop_member(shop_id) and created_by = (select auth.uid())));
@@ -282,6 +320,7 @@ drop policy if exists "own photos update" on storage.objects;
 drop policy if exists "own photos delete" on storage.objects;
 
 -- อ่านได้ถ้าเป็นรูปของรถในเต็นท์ตัวเอง (รวมรูปเก่าที่อยู่ในโฟลเดอร์ผู้ใช้)
+drop policy if exists "shop photos read" on storage.objects;
 create policy "shop photos read" on storage.objects
   for select to authenticated
   using (
@@ -290,12 +329,15 @@ create policy "shop photos read" on storage.objects
       or exists (select 1 from public.cars c where c.photo_path = name and public.is_shop_member(c.shop_id))
     )
   );
+drop policy if exists "shop photos write" on storage.objects;
 create policy "shop photos write" on storage.objects
   for insert to authenticated
   with check (bucket_id = 'car-photos' and public.is_folder_member((storage.foldername(name))[1]));
+drop policy if exists "shop photos update" on storage.objects;
 create policy "shop photos update" on storage.objects
   for update to authenticated
   using (bucket_id = 'car-photos' and public.is_folder_member((storage.foldername(name))[1]));
+drop policy if exists "shop photos delete" on storage.objects;
 create policy "shop photos delete" on storage.objects
   for delete to authenticated
   using (
