@@ -30,8 +30,12 @@ jobs:
           fi
           status=$(curl -sS -o /tmp/body.txt -w '%{http_code}' --retry 3 --retry-delay 10 \
             -H "apikey: $SUPABASE_ANON_KEY" \
-            "${SUPABASE_URL%/}/rest/v1/shops?select=id&limit=1")
+            "${SUPABASE_URL%/}/rest/v1/shops?select=id&limit=1") || status=000
           echo "HTTP $status"
+          if [ "$status" = "000" ]; then
+            echo "::error::ติดต่อ ${SUPABASE_URL} ไม่ได้ (DNS หาไม่เจอ/เชื่อมต่อไม่ได้) — เปิด Supabase Dashboard ดูว่าโปรเจกต์ถูกพัก ถูกระงับ หรือถูกลบ"
+            exit 1
+          fi
           if [ "$status" != "200" ]; then
             cat /tmp/body.txt; echo
             echo "::error::Supabase ตอบ $status — โปรเจกต์อาจถูกพักไปแล้ว หรือ secrets ไม่ถูกต้อง"
