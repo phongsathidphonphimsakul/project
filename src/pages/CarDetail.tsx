@@ -406,7 +406,17 @@ function PhotoBlock({ car }: { car: Car }) {
           </span>
         )}
       </button>
-      <input ref={input} type="file" accept="image/*" capture="environment" hidden onChange={(e) => pick(e.target.files?.[0])} />
+      {/* ไม่ใส่ capture เพื่อให้มือถือถามว่าจะ "ถ่ายรูป" หรือ "เลือกจากอัลบั้ม" */}
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          pick(e.target.files?.[0])
+          e.target.value = '' // ให้เลือกรูปเดิมซ้ำได้
+        }}
+      />
     </section>
   )
 }
